@@ -1,23 +1,24 @@
 # Codeception Test Suite Configuration
+#
+# Suite for acceptance tests.
+# Perform tests in browser using the WebDriver or PhpBrowser.
+# If you need both WebDriver and PHPBrowser tests - create a separate suite.
 
-# suite for acceptance tests.
-# perform tests in browser using the Selenium-like tools.
-# powered by Mink (http://mink.behat.org).
-# (tip: that's what your customer will see).
-# (tip: test your ajax and javascript by one of Mink drivers).
-
-# RUN `build` COMMAND AFTER ADDING/REMOVING MODULES.
-
-class_name: WebGuy
+class_name: AcceptanceTester
 modules:
     enabled:
-        - Selenium2
-        - WebHelper
-        - Db
-    config:
-        Selenium2:
-         url: 'http://ninja.dev/'
-         delay: 400
-         browser: phantomjs
-         capabilities:
-             webStorageEnabled: true
+        - WebDriver:
+            url: 'http://ninja.dev/'
+            host: 127.0.0.1
+            window_size: 1024x768
+            wait: 5
+            browser: phantomjs
+            capabilities:
+                unexpectedAlertBehaviour: 'accept'
+                webStorageEnabled: true
+        - Db:
+            dsn: 'mysql:dbname=ninja;host=localhost;'
+            user: 'ninja'
+            password: 'ninja'
+            dump: tests/_data/dump.sql
+        - \Helper\Acceptance

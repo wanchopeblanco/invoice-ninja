@@ -2,161 +2,67 @@
 var isOpera = !!window.opera || navigator.userAgent.indexOf(' OPR/') >= 0;
 var isFirefox = typeof InstallTrigger !== 'undefined';   // Firefox 1.0+
 var isSafari = Object.prototype.toString.call(window.HTMLElement).indexOf('Constructor') > 0;
-var isChrome = !!window.chrome && !isOpera;              // Chrome 1+
+var isEdge = navigator.userAgent.indexOf('Edge/') >= 0;
+var isChrome = !!window.chrome && !isOpera && !isEdge; // Chrome 1+
 var isChromium = isChrome && navigator.userAgent.indexOf('Chromium') >= 0;
 var isIE = /*@cc_on!@*/false || !!document.documentMode; // At least IE6
 
-
-var invoiceOld;
-function generatePDF(invoice, javascript, force) {
-  invoice = calculateAmounts(invoice);  
-  var a = copyInvoice(invoice);
-  var b = copyInvoice(invoiceOld);
-  if (!force && _.isEqual(a, b)) {
+var refreshTimer;
+function generatePDF(invoice, javascript, force, cb) {
+  if (!invoice || !javascript) {
     return;
   }
-  invoiceOld = invoice;
-  report_id = invoice.invoice_design_id;
-  doc = GetPdf(invoice, javascript);
-  return doc;
+  //console.log('== generatePDF - force: %s', force);
+  if (force) {
+    refreshTimer = null;
+  } else {
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+      }
+      refreshTimer = setTimeout(function() {
+        generatePDF(invoice, javascript, true, cb);
+      }, 500);
+      return;
+  }
+
+  invoice = calculateAmounts(invoice);
+  var pdfDoc = GetPdfMake(invoice, javascript, cb);
+
+  if (cb) {
+     pdfDoc.getDataUrl(cb);
+  }
+
+  return pdfDoc;
 }
 
-function copyInvoice(orig) {
+function copyObject(orig) {
   if (!orig) return false;
-  var copy = JSON.stringify(orig);
-  var copy = JSON.parse(copy);
-  return copy;
+  return JSON.parse(JSON.stringify(orig));
 }
-
-
-function GetPdf(invoice, javascript){
-  var layout = {
-    accountTop: 40,
-    marginLeft: 50,
-    marginRight: 550,
-    headerTop: 150,
-    headerLeft: 360,
-    headerRight: 550,
-    rowHeight: 15,
-    tableRowHeight: 10,
-    footerLeft: 420,
-    tablePadding: 12,
-    tableTop: 250,
-    descriptionLeft: 162,
-    unitCostRight: 410,
-    qtyRight: 480,
-    taxRight: 480,
-    lineTotalRight: 550
-  };
-
-  if (invoice.has_taxes)
-  {
-    layout.descriptionLeft -= 20;
-    layout.unitCostRight -= 40;
-    layout.qtyRight -= 40;
-  } 
-
-  /*
-   @param orientation One of "portrait" or "landscape" (or shortcuts "p" (Default), "l")
-   @param unit Measurement unit to be used when coordinates are specified. One of "pt" (points), "mm" (Default), "cm", "in"
-   @param format One of 'a3', 'a4' (Default),'a5' ,'letter' ,'legal'
-   @returns {jsPDF}
-   */
-  var doc = new jsPDF('portrait', 'pt', 'a4');
-
-  //doc.getStringUnitWidth = function(param) { console.log('getStringUnitWidth: %s', param); return 0};
-
-  //Set PDF properities
-  doc.setProperties({
-      title: 'Invoice ' + invoice.invoice_number,
-      subject: '',
-      author: 'InvoiceNinja.com',
-      keywords: 'pdf, invoice',
-      creator: 'InvoiceNinja.com'
-  });
-
-  //set default style for report
-  doc.setFont('Helvetica','');
-
-  eval(javascript);
-
-  return doc;
-}
-
-
-function SetPdfColor(color, doc, role)
-{
-  if (role === 'primary' && NINJA.primaryColor) {
-    return setDocHexColor(doc, NINJA.primaryColor);
-  } else if (role === 'secondary' && NINJA.secondaryColor) {
-    return setDocHexColor(doc, NINJA.secondaryColor);
-  }
-
-  if (color=='LightBlue') {
-      return doc.setTextColor(41,156, 194);
-  }
-
-  if (color=='Black') {
-      return doc.setTextColor(46,43,43);//select color black
-  }
-  if (color=='GrayLogo') {
-      return doc.setTextColor(207,241, 241);//select color Custom Report GRAY
-  }
-
-  if (color=='GrayBackground') {
-      return doc.setTextColor(251,251, 251);//select color Custom Report GRAY
-  }
-
-  if (color=='GrayText') {
-      return doc.setTextColor(161,160,160);//select color Custom Report GRAY Colour
-  }
-
-  if (color=='White') {
-      return doc.setTextColor(255,255,255);//select color Custom Report GRAY Colour
-  }
-
-  if (color=='SomeGreen') {
-      return doc.setTextColor(54,164,152);//select color Custom Report GRAY Colour
-  }
-
-  if (color=='LightGrayReport2-gray') {
-      return doc.setTextColor(240,240,240);//select color Custom Report GRAY Colour
-  }
-
-  if (color=='LightGrayReport2-white') {
-      return doc.setTextColor(251,251,251);//select color Custom Report GRAY Colour
-  }
-
-  if (color=='orange') {
-      return doc.setTextColor(234,121,45);//select color Custom Report GRAY Colour
-  }
-
-}
-
 
 /* Handle converting variables in the invoices (ie, MONTH+1) */
 function processVariables(str) {
   if (!str) return '';
   var variables = ['MONTH','QUARTER','YEAR'];
   for (var i=0; i<variables.length; i++) {
-    var variable = variables[i];        
+    var variable = variables[i];
         var regexp = new RegExp(':' + variable + '[+-]?[\\d]*', 'g');
-        var matches = str.match(regexp);        
+        var matches = str.match(regexp);
         if (!matches) {
-             continue;  
+             continue;
         }
         for (var j=0; j<matches.length; j++) {
             var match = matches[j];
-            var offset = 0;                
+            var offset = 0;
             if (match.split('+').length > 1) {
                 offset = match.split('+')[1];
             } else if (match.split('-').length > 1) {
                 offset = parseInt(match.split('-')[1]) * -1;
             }
-            str = str.replace(match, getDatePart(variable, offset));            
+            str = str.replace(match, getDatePart(variable, offset));
         }
-  }   
-  
+  }
+
   return str;
 }
 
@@ -179,7 +85,7 @@ function getMonth(offset) {
   var months = [ "January", "February", "March", "April", "May", "June",
             "July", "August", "September", "October", "November", "December" ];
   var month = today.getMonth();
-    month = parseInt(month) + offset;    
+    month = parseInt(month) + offset;
     month = month % 12;
     if (month < 0) {
       month += 12;
@@ -199,7 +105,7 @@ function getQuarter(offset) {
   quarter += offset;
     quarter = quarter % 4;
     if (quarter == 0) {
-         quarter = 4;   
+         quarter = 4;
     }
     return 'Q' + quarter;
 }
@@ -344,17 +250,6 @@ if ( $.fn.DataTable.TableTools ) {
   } );
 }
 
-/*
-$(document).ready(function() {
-  $('#example').dataTable( {
-    "sDom": "<'row'<'span6'l><'span6'f>r>t<'row'<'span6'i><'span6'p>>",
-    "sPaginationType": "bootstrap",
-    "oLanguage": {
-      "sLengthMenu": "_MENU_ records per page"
-    }
-  } );
-} );
-*/
 
 function isStorageSupported() {
   try {
@@ -372,7 +267,7 @@ function isValidEmailAddress(emailAddress) {
 $(function() {
     $.ajaxSetup({
         headers: {
-            'X-CSRF-Token': $('meta[name="csrf-token"]').attr('content')
+            'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
         }
     });
 });
@@ -388,7 +283,7 @@ function enableHoverClick($combobox, $entityId, url) {
     setAsLink($combobox, false);
   }).on('click', function() {
     var clientId = $entityId.val();
-    if ($(combobox).closest('.combobox-container').hasClass('combobox-selected')) {       
+    if ($(combobox).closest('.combobox-container').hasClass('combobox-selected')) {
       if (parseInt(clientId) > 0) {
         window.open(url + '/' + clientId, '_blank');
       } else {
@@ -402,10 +297,10 @@ function enableHoverClick($combobox, $entityId, url) {
 function setAsLink($input, enable) {
   if (enable) {
     $input.css('text-decoration','underline');
-    $input.css('cursor','pointer'); 
+    $input.css('cursor','pointer');
   } else {
     $input.css('text-decoration','none');
-    $input.css('cursor','text');  
+    $input.css('cursor','text');
   }
 }
 
@@ -436,74 +331,82 @@ if (window.ko) {
          var id = (value && value.public_id) ? value.public_id() : (value && value.id) ? value.id() : value ? value : false;
          if (id) $(element).val(id);
          //console.log("combo-init: %s", id);
-         $(element).combobox(options);       
+         $(element).combobox(options);
 
          /*
           ko.utils.registerEventHandler(element, "change", function () {
-            console.log("change: %s", $(element).val());          
-            //var  
+            console.log("change: %s", $(element).val());
+            //var
             valueAccessor($(element).val());
               //$(element).combobox('refresh');
           });
           */
       },
-      update: function (element, valueAccessor) {     
+      update: function (element, valueAccessor) {
         var value = ko.utils.unwrapObservable(valueAccessor());
         var id = (value && value.public_id) ? value.public_id() : (value && value.id) ? value.id() : value ? value : false;
           //console.log("combo-update: %s", id);
-        if (id) { 
-          $(element).val(id);       
+        if (id) {
+          $(element).val(id);
           $(element).combobox('refresh');
         } else {
-          $(element).combobox('clearTarget');       
-          $(element).combobox('clearElement');        
-        }       
-      }    
+          $(element).combobox('clearTarget');
+          $(element).combobox('clearElement');
+        }
+      }
   };
 
 
   ko.bindingHandlers.datePicker = {
       init: function (element, valueAccessor, allBindingsAccessor) {
-         var value = ko.utils.unwrapObservable(valueAccessor());       
+         var value = ko.utils.unwrapObservable(valueAccessor());
          if (value) $(element).datepicker('update', value);
-         $(element).change(function() { 
+         $(element).change(function() {
             var value = valueAccessor();
             value($(element).val());
          })
       },
-      update: function (element, valueAccessor) {     
+      update: function (element, valueAccessor) {
          var value = ko.utils.unwrapObservable(valueAccessor());
          if (value) $(element).datepicker('update', value);
-      }    
+      }
+  };
+
+  ko.bindingHandlers.placeholder = {
+    init: function (element, valueAccessor, allBindingsAccessor) {
+      var underlyingObservable = valueAccessor();
+      ko.applyBindingsToNode(element, { attr: { placeholder: underlyingObservable } } );
+    }
+  };
+
+  ko.bindingHandlers.tooltip = {
+    init: function(element, valueAccessor) {
+        var local = ko.utils.unwrapObservable(valueAccessor()),
+        options = {};
+
+        ko.utils.extend(options, ko.bindingHandlers.tooltip.options);
+        ko.utils.extend(options, local);
+
+        $(element).tooltip(options);
+
+        ko.utils.domNodeDisposal.addDisposeCallback(element, function() {
+            $(element).tooltip("destroy");
+        });
+    },
+    options: {
+        placement: "bottom",
+        trigger: "hover"
+    }
   };
 }
 
-function wordWrapText(value, width)
+function getContactDisplayName(contact)
 {
-  var doc = new jsPDF('p', 'pt');
-  doc.setFont('Helvetica','');
-  doc.setFontSize(10);
-
-  var lines = value.split("\n");
-  for (var i = 0; i < lines.length; i++) {
-    var numLines = doc.splitTextToSize(lines[i], width).length;
-    if (numLines <= 1) continue;
-    var j = 0; space = lines[i].length;
-    while (j++ < lines[i].length) {
-      if (lines[i].charAt(j) === ' ') space = j;
+    if (contact.first_name || contact.last_name) {
+        return contact.first_name + ' ' + contact.last_name;
+    } else {
+        return contact.email;
     }
-    if (space == lines[i].length) space = width/6;    
-    lines[i + 1] = lines[i].substring(space + 1) + ' ' + (lines[i + 1] || '');
-    lines[i] = lines[i].substring(0, space);
-  }
-  
-  var newValue = (lines.join("\n")).trim();
-
-  if (value == newValue) {
-    return newValue;
-  } else {
-    return wordWrapText(newValue, width);
-  }
 }
 
 function getClientDisplayName(client)
@@ -512,11 +415,7 @@ function getClientDisplayName(client)
   if (client.name) {
     return client.name;
   } else if (contact) {
-    if (contact.first_name || contact.last_name) {
-      return contact.first_name + ' ' + contact.last_name;
-    } else {
-      return contact.email;
-    }
+    return getContactDisplayName(contact);
   }
   return '';
 }
@@ -525,14 +424,14 @@ function populateInvoiceComboboxes(clientId, invoiceId) {
   var clientMap = {};
   var invoiceMap = {};
   var invoicesForClientMap = {};
-  var $clientSelect = $('select#client');   
-  
+  var $clientSelect = $('select#client');
+
   for (var i=0; i<invoices.length; i++) {
     var invoice = invoices[i];
-    var client = invoice.client;      
+    var client = invoice.client;
 
     if (!invoicesForClientMap.hasOwnProperty(client.public_id)) {
-      invoicesForClientMap[client.public_id] = [];        
+      invoicesForClientMap[client.public_id] = [];
     }
 
     invoicesForClientMap[client.public_id].push(invoice);
@@ -544,28 +443,28 @@ function populateInvoiceComboboxes(clientId, invoiceId) {
     clientMap[client.public_id] = client;
   }
 
-  $clientSelect.append(new Option('', '')); 
+  $clientSelect.append(new Option('', ''));
   for (var i=0; i<clients.length; i++) {
     var client = clients[i];
     $clientSelect.append(new Option(getClientDisplayName(client), client.public_id));
-  } 
+  }
 
   if (clientId) {
     $clientSelect.val(clientId);
   }
 
   $clientSelect.combobox();
-  $clientSelect.on('change', function(e) {            
+  $clientSelect.on('change', function(e) {
     var clientId = $('input[name=client]').val();
-    var invoiceId = $('input[name=invoice]').val();           
+    var invoiceId = $('input[name=invoice]').val();
     var invoice = invoiceMap[invoiceId];
     if (invoice && invoice.client.public_id == clientId) {
       e.preventDefault();
       return;
     }
-    setComboboxValue($('.invoice-select'), '', '');       
+    setComboboxValue($('.invoice-select'), '', '');
     $invoiceCombobox = $('select#invoice');
-    $invoiceCombobox.find('option').remove().end().combobox('refresh');     
+    $invoiceCombobox.find('option').remove().end().combobox('refresh');
     $invoiceCombobox.append(new Option('', ''));
     var list = clientId ? (invoicesForClientMap.hasOwnProperty(clientId) ? invoicesForClientMap[clientId] : []) : invoices;
     for (var i=0; i<list.length; i++) {
@@ -573,18 +472,19 @@ function populateInvoiceComboboxes(clientId, invoiceId) {
       var client = clientMap[invoice.client.public_id];
       if (!client) continue; // client is deleted/archived
       $invoiceCombobox.append(new Option(invoice.invoice_number + ' - ' + invoice.invoice_status.name + ' - ' +
-                getClientDisplayName(client) + ' - ' + formatMoney(invoice.amount, invoice.currency_id) + ' | ' +
-                formatMoney(invoice.balance, invoice.currency_id),  invoice.public_id));
+                getClientDisplayName(client) + ' - ' + formatMoneyInvoice(invoice.amount, invoice) + ' | ' +
+                formatMoneyInvoice(invoice.balance, invoice),  invoice.public_id));
     }
     $('select#invoice').combobox('refresh');
   });
 
-  var $invoiceSelect = $('select#invoice').on('change', function(e) {     
+  var $invoiceSelect = $('select#invoice').on('change', function(e) {
     $clientCombobox = $('select#client');
-    var invoiceId = $('input[name=invoice]').val();           
+    var invoiceId = $('input[name=invoice]').val();
     if (invoiceId) {
-      var invoice = invoiceMap[invoiceId];        
+      var invoice = invoiceMap[invoiceId];
       var client = clientMap[invoice.client.public_id];
+      invoice.client = client;
       setComboboxValue($('.client-select'), client.public_id, getClientDisplayName(client));
       if (!parseFloat($('#amount').val())) {
         $('#amount').val(parseFloat(invoice.balance).toFixed(2));
@@ -592,14 +492,15 @@ function populateInvoiceComboboxes(clientId, invoiceId) {
     }
   });
 
-  $invoiceSelect.combobox();  
+  $invoiceSelect.combobox();
 
   if (invoiceId) {
     var invoice = invoiceMap[invoiceId];
     var client = clientMap[invoice.client.public_id];
+    invoice.client = client;
     setComboboxValue($('.invoice-select'), invoice.public_id, (invoice.invoice_number + ' - ' +
             invoice.invoice_status.name + ' - ' + getClientDisplayName(client) + ' - ' +
-            formatMoney(invoice.amount, invoice.currency_id) + ' | ' + formatMoney(invoice.balance, invoice.currency_id)));
+            formatMoneyInvoice(invoice.amount, invoice) + ' | ' + formatMoneyInvoice(invoice.balance, invoice)));
     $invoiceSelect.trigger('change');
   } else if (clientId) {
     var client = clientMap[clientId];
@@ -607,7 +508,7 @@ function populateInvoiceComboboxes(clientId, invoiceId) {
     $clientSelect.trigger('change');
   } else {
     $clientSelect.trigger('change');
-  } 
+  }
 }
 
 
@@ -621,143 +522,19 @@ CONSTS.INVOICE_STATUS_PAID = 5;
 $.fn.datepicker.defaults.autoclose = true;
 $.fn.datepicker.defaults.todayHighlight = true;
 
-
-
-
-
-function displayAccount(doc, invoice, x, y, layout) {
-  var account = invoice.account;
-
-  if (!account) {
-    return;
-  }
-
-  var data = [
-    account.name,
-    account.work_email,
-    account.work_phone
-  ];
-
-  displayGrid(doc, invoice, data, x, y, layout, {hasHeader:true});
-
-  data = [
-    concatStrings(account.address1, account.address2),
-    concatStrings(account.city, account.state, account.postal_code),    
-    account.country ? account.country.name : false,
-    invoice.account.custom_value1 ? invoice.account['custom_label1'] + ' ' + invoice.account.custom_value1 : false, 
-    invoice.account.custom_value2 ? invoice.account['custom_label2'] + ' ' + invoice.account.custom_value2 : false,     
-  ];
-
-  var nameWidth = account.name ? (doc.getStringUnitWidth(account.name) * doc.internal.getFontSize() * 1.1) : 0;
-  var emailWidth = account.work_email ? (doc.getStringUnitWidth(account.work_email) * doc.internal.getFontSize() * 1.1) : 0;
-  width = Math.max(emailWidth, nameWidth, 120);
-
-  x += width;
-
-  displayGrid(doc, invoice, data, x, y, layout);  
-}
-
-
-function displayClient(doc, invoice, x, y, layout) {
-  var client = invoice.client;
-  if (!client) {
-    return;
-  }  
-  var data = [
-    getClientDisplayName(client),
-    concatStrings(client.address1, client.address2),
-    concatStrings(client.city, client.state, client.postal_code),
-    client.country ? client.country.name : false,
-    client.contacts ? client.contacts[0].email : false,
-    invoice.client.custom_value1 ? invoice.account['custom_client_label1'] + ' ' + invoice.client.custom_value1 : false, 
-    invoice.client.custom_value2 ? invoice.account['custom_client_label2'] + ' ' + invoice.client.custom_value2 : false, 
-  ];
-  return displayGrid(doc, invoice, data, x, y, layout, {hasheader:true});
-}
-
-function displayInvoice(doc, invoice, x, y, layout, rightAlignX) {
-  if (!invoice) {
-    return;
-  }
-
-  var data = getInvoiceDetails(invoice);
-  var options = {
-    hasheader: true,
-    rightAlignX: rightAlignX,
-  };
-
-  return displayGrid(doc, invoice, data, x, y, layout, options);
-}
-
-function getInvoiceDetails(invoice) {
-  return [
-    {'invoice_number': invoice.invoice_number},
-    {'po_number': invoice.po_number},
-    {'invoice_date': invoice.invoice_date},
-    {'due_date': invoice.due_date},
-    {'balance_due': formatMoney(invoice.balance_amount, invoice.client.currency_id)},
-  ]; 
-}
-
-function getInvoiceDetailsHeight(invoice, layout) {
-  var data = getInvoiceDetails(invoice);
-  var count = 0;
-  for (var key in data) {
-    if (!data.hasOwnProperty(key)) {
-      continue;
+function formatAddress(city, state, zip, swap) {
+    var str = '';
+    if (swap) {
+        str += zip ? zip + ' ' : '';
+        str += city ? city : '';
+        str += (city && state) ? ', ' : (city ? ' ' : '');
+        str += state;        
+    } else {
+        str += city ? city : '';
+        str += (city && state) ? ', ' : (state ? ' ' : '');
+        str += state + ' ' + zip;
     }
-    var obj = data[key];
-    for (var subKey in obj) {
-      if (!obj.hasOwnProperty(subKey)) {
-        continue;
-      }
-      if (obj[subKey]) {
-        count++;
-      }
-    }
-  }
-  return count * layout.rowHeight;
-}
-
-function displaySubtotals(doc, layout, invoice, y, rightAlignTitleX)
-{
-  if (!invoice) {
-    return;
-  }
-
-  var data = [
-    {'subtotal': formatMoney(invoice.subtotal_amount, invoice.client.currency_id)},
-    {'discount': invoice.discount_amount > 0 ? formatMoney(invoice.discount_amount, invoice.client.currency_id) : false}
-  ];
-
-  if (NINJA.parseFloat(invoice.custom_value1) && invoice.custom_taxes1 == '1') {    
-    data.push({'custom_invoice_label1': formatMoney(invoice.custom_value1, invoice.client.currency_id) })
-  }
-  if (NINJA.parseFloat(invoice.custom_value2) && invoice.custom_taxes2 == '1') {
-    data.push({'custom_invoice_label2': formatMoney(invoice.custom_value2, invoice.client.currency_id) }) 
-  }
-
-  data.push({'tax': invoice.tax_amount > 0 ? formatMoney(invoice.tax_amount, invoice.client.currency_id) : false});
-
-  if (NINJA.parseFloat(invoice.custom_value1) && invoice.custom_taxes1 != '1') {    
-    data.push({'custom_invoice_label1': formatMoney(invoice.custom_value1, invoice.client.currency_id) })
-  }
-  if (NINJA.parseFloat(invoice.custom_value2) && invoice.custom_taxes2 != '1') {
-    data.push({'custom_invoice_label2': formatMoney(invoice.custom_value2, invoice.client.currency_id) }) 
-  }
-
-  var paid = invoice.amount - invoice.balance;
-  if (invoice.account.hide_paid_to_date != '1' || paid) {
-    data.push({'paid_to_date': formatMoney(paid, invoice.client.currency_id)});
-  }
-
-  var options = {
-    hasheader: true,
-    rightAlignX: 550,
-    rightAlignTitleX: rightAlignTitleX    
-  };
-
-  return displayGrid(doc, invoice, data, 300, y, layout, options) + 10;
+    return str;
 }
 
 function concatStrings() {
@@ -777,144 +554,80 @@ function concatStrings() {
       concatStr += ' ';
     }
   }
-  return data.length ? concatStr : false;
-}
-
-function displayGrid(doc, invoice, data, x, y, layout, options)  {
-  var numLines = 0;
-  var origY = y;
-  for (var i=0; i<data.length; i++) {
-    doc.setFontType('normal');
-      
-    if (invoice.invoice_design_id == 1 && i > 0 && origY === layout.accountTop) {
-      SetPdfColor('GrayText',doc);
-    }
-
-    var row = data[i];
-    if (!row) {
-      continue;
-    }
-
-    if (options && (options.hasheader && i === 0 && !options.rightAlignTitleX)) {
-      doc.setFontType('bold');
-    }
-
-    if (typeof row === 'object') {      
-      for (var key in row) {
-        if (row.hasOwnProperty(key)) {
-          var value = row[key] ? row[key] + '' : false;
-        }
-      }
-      if (!value) {
-        continue;
-      }  
-
-      var marginLeft;
-      if (options.rightAlignX) {
-        marginLeft = options.rightAlignX - (doc.getStringUnitWidth(value) * doc.internal.getFontSize());          
-      } else {
-        marginLeft = x + 80;
-      }
-      doc.text(marginLeft, y, value);       
-      
-      doc.setFontType('normal');
-      if (invoice.is_quote) {
-        if (key == 'invoice_number') {
-          key = 'quote_number';
-        } else if (key == 'invoice_date') {
-          key = 'quote_date';
-        } else if (key == 'balance_due') {
-          key = 'total';
-        }
-      }
-
-      if (key.substring(0, 6) === 'custom') {
-        key = invoice.account[key];
-      } else if (key === 'tax') {
-        key = invoiceLabels[key] + ' ' + invoice.tax_amount + '%';
-      } else {
-        key = invoiceLabels[key];
-      }
-
-      if (options.rightAlignTitleX) {
-        marginLeft = options.rightAlignTitleX - (doc.getStringUnitWidth(key) * doc.internal.getFontSize());
-      } else {
-        marginLeft = x;
-      }
-
-      doc.text(marginLeft, y, key);      
-    } else {
-      doc.text(x, y, row);
-    }
-
-    numLines++;
-    y += layout.rowHeight;
-  }
-
-  return numLines * layout.rowHeight;
-}
-
-function displayNotesAndTerms(doc, layout, invoice, y)
-{
-  doc.setFontType("normal");
-  var origY = y;
-
-  if (invoice.public_notes) {
-    doc.text(layout.marginLeft, y, invoice.public_notes);
-    y += 16 + (doc.splitTextToSize(invoice.public_notes, 300).length * doc.internal.getFontSize());    
-  }
-    
-  if (invoice.terms) {
-    doc.setFontType("bold");
-    doc.text(layout.marginLeft, y, invoiceLabels.terms);
-    y += 16;
-    doc.setFontType("normal");
-    doc.text(layout.marginLeft, y, invoice.terms);
-    y += 16 + (doc.splitTextToSize(invoice.terms, 300).length * doc.internal.getFontSize());    
-  }
-
-  return y - origY;
+  return data.length ? concatStr : "";
 }
 
 function calculateAmounts(invoice) {
   var total = 0;
   var hasTaxes = false;
+  var taxes = {};
 
+  // sum line item
   for (var i=0; i<invoice.invoice_items.length; i++) {
     var item = invoice.invoice_items[i];
-    var tax = 0;
-    if (item.tax && parseFloat(item.tax.rate)) {
-      tax = parseFloat(item.tax.rate);
-    } else if (item.tax_rate && parseFloat(item.tax_rate)) {
-      tax = parseFloat(item.tax_rate);
-    }   
-
-    var lineTotal = NINJA.parseFloat(item.cost) * NINJA.parseFloat(item.qty);
-    if (tax) {
-      lineTotal += roundToTwo(lineTotal * tax / 100);
-    }
+    var lineTotal = roundToTwo(NINJA.parseFloat(item.cost)) * roundToTwo(NINJA.parseFloat(item.qty));
     if (lineTotal) {
       total += lineTotal;
     }
+  }
 
-    if ((item.tax && item.tax.rate > 0) || (item.tax_rate && parseFloat(item.tax_rate) > 0)) {
+  for (var i=0; i<invoice.invoice_items.length; i++) {
+    var item = invoice.invoice_items[i];
+    var taxRate = 0;
+    var taxName = '';
+
+    // the object structure differs if it's read from the db or created by knockoutJS
+    if (item.tax && parseFloat(item.tax.rate)) {
+      taxRate = parseFloat(item.tax.rate);
+      taxName = item.tax.name;
+    } else if (item.tax_rate && parseFloat(item.tax_rate)) {
+      taxRate = parseFloat(item.tax_rate);
+      taxName = item.tax_name;
+    }
+
+    // calculate line item tax
+    var lineTotal = roundToTwo(NINJA.parseFloat(item.cost)) * roundToTwo(NINJA.parseFloat(item.qty));
+    if (invoice.discount != 0) {
+        if (parseInt(invoice.is_amount_discount)) {
+            lineTotal -= roundToTwo((lineTotal/total) * invoice.discount);
+        } else {
+            lineTotal -= roundToTwo(lineTotal * (invoice.discount/100));
+        }
+    }
+    var taxAmount = roundToTwo(lineTotal * taxRate / 100);
+
+    if (taxRate) {
+      var key = taxName + taxRate;
+      if (taxes.hasOwnProperty(key)) {
+        taxes[key].amount += taxAmount;
+      } else {
+        taxes[key] = {name: taxName, rate:taxRate, amount:taxAmount};
+      }
+    }
+
+    if ((item.tax && item.tax.name) || item.tax_name) {
       hasTaxes = true;
     }
   }
 
   invoice.subtotal_amount = total;
 
-  if (invoice.discount > 0) {
-    var discount = roundToTwo(total * (invoice.discount/100));
+  var discount = 0;
+  if (invoice.discount != 0) {
+    if (parseInt(invoice.is_amount_discount)) {
+      discount = roundToTwo(invoice.discount);
+    } else {
+      discount = roundToTwo(total * (invoice.discount/100));
+    }
     total -= discount;
   }
 
   // custom fields with taxes
-  if (NINJA.parseFloat(invoice.custom_value1) && invoice.custom_taxes1 == '1') {    
-    total += roundToTwo(invoice.custom_value1);    
+  if (NINJA.parseFloat(invoice.custom_value1) && invoice.custom_taxes1 == '1') {
+    total += roundToTwo(invoice.custom_value1);
   }
   if (NINJA.parseFloat(invoice.custom_value2) && invoice.custom_taxes2 == '1') {
-    total += roundToTwo(invoice.custom_value2);    
+    total += roundToTwo(invoice.custom_value2);
   }
 
   var tax = 0;
@@ -929,18 +642,30 @@ function calculateAmounts(invoice) {
     total = parseFloat(total) + parseFloat(tax);
   }
 
-  // custom fields w/o with taxes
-  if (NINJA.parseFloat(invoice.custom_value1) && invoice.custom_taxes1 != '1') {    
-    total += roundToTwo(invoice.custom_value1);    
-  }
-  if (NINJA.parseFloat(invoice.custom_value2) && invoice.custom_taxes2 != '1') {
-    total += roundToTwo(invoice.custom_value2);    
+  for (var key in taxes) {
+    if (taxes.hasOwnProperty(key)) {
+        total += taxes[key].amount;
+    }
   }
 
-  invoice.balance_amount = roundToTwo(total) - (roundToTwo(invoice.amount) - roundToTwo(invoice.balance));
+  // custom fields w/o with taxes
+  if (NINJA.parseFloat(invoice.custom_value1) && invoice.custom_taxes1 != '1') {
+    total += roundToTwo(invoice.custom_value1);
+  }
+  if (NINJA.parseFloat(invoice.custom_value2) && invoice.custom_taxes2 != '1') {
+    total += roundToTwo(invoice.custom_value2);
+  }
+
+  invoice.total_amount = roundToTwo(total) - (roundToTwo(invoice.amount) - roundToTwo(invoice.balance));
   invoice.discount_amount = discount;
   invoice.tax_amount = tax;
-  invoice.has_taxes = hasTaxes;
+  invoice.item_taxes = taxes;
+  
+  if (NINJA.parseFloat(invoice.partial)) {
+    invoice.balance_amount = roundToTwo(invoice.partial);
+  } else {
+    invoice.balance_amount = invoice.total_amount;
+  }
 
   return invoice;
 }
@@ -951,216 +676,21 @@ function getInvoiceTaxRate(invoice) {
     tax = parseFloat(invoice.tax.rate);
   } else if (invoice.tax_rate && parseFloat(invoice.tax_rate)) {
     tax = parseFloat(invoice.tax_rate);
-  }   
+  }
   return tax;
 }
 
-function displayInvoiceHeader(doc, invoice, layout) {
-
-  var costX = layout.unitCostRight - (doc.getStringUnitWidth(invoiceLabels.unit_cost) * doc.internal.getFontSize());
-  var qtyX = layout.qtyRight - (doc.getStringUnitWidth(invoiceLabels.quantity) * doc.internal.getFontSize());
-  var taxX = layout.taxRight - (doc.getStringUnitWidth(invoiceLabels.tax) * doc.internal.getFontSize());
-  var totalX = layout.lineTotalRight - (doc.getStringUnitWidth(invoiceLabels.line_total) * doc.internal.getFontSize());
-
-  doc.text(layout.marginLeft, layout.tableTop, invoiceLabels.item);
-  doc.text(layout.descriptionLeft, layout.tableTop, invoiceLabels.description);
-  doc.text(costX, layout.tableTop, invoiceLabels.unit_cost);
-  if (invoice.account.hide_quantity != '1') {
-    doc.text(qtyX, layout.tableTop, invoiceLabels.quantity);
-  }
-  doc.text(totalX, layout.tableTop, invoiceLabels.line_total);
-
-  if (invoice.has_taxes)
-  {
-    doc.text(taxX, layout.tableTop, invoiceLabels.tax);
-  }
-}
-
-function displayInvoiceItems(doc, invoice, layout) {  
-  doc.setFontType("normal");
-
-  var line = 1;
-  var total = 0;
-  var shownItem = false;
-  var currencyId = invoice && invoice.client ? invoice.client.currency_id : 1;  
-  var tableTop = layout.tableTop;
-  var hideQuantity = invoice.account.hide_quantity == '1';  
-  
-  doc.setFontSize(8);
-  for (var i=0; i<invoice.invoice_items.length; i++) {
-    var item = invoice.invoice_items[i];    
-    var numLines = doc.splitTextToSize(item.notes, 200).length + 2;
-    //console.log('num lines %s', numLines);
-
-    var y = tableTop + (line * layout.tableRowHeight) + (2 * layout.tablePadding);
-    var top = y - layout.tablePadding;
-    var newTop = top + (numLines * layout.tableRowHeight);
-
-    if (newTop > 770) {
-      line = 0;
-      tableTop = layout.accountTop + layout.tablePadding;
-      y = tableTop;
-      top = y - layout.tablePadding;
-      newTop = top + (numLines * layout.tableRowHeight);
-      doc.addPage();
+// http://stackoverflow.com/questions/11941876/correctly-suppressing-warnings-in-datatables
+window.alert = (function() {
+    var nativeAlert = window.alert;
+    return function(message) {
+        window.alert = nativeAlert;
+        message && message.indexOf("DataTables warning") === 0 ?
+            console.error(message) :
+            nativeAlert(message);
     }
+})();
 
-    var left = layout.marginLeft - layout.tablePadding;
-    var width = layout.marginRight + layout.tablePadding;
-
-    var cost = formatMoney(item.cost, currencyId, true);
-    var qty = NINJA.parseFloat(item.qty) ? NINJA.parseFloat(item.qty) + '' : '';
-    var notes = item.notes;
-    var productKey = item.product_key;
-    var tax = 0;
-    if (item.tax && parseFloat(item.tax.rate)) {
-      tax = parseFloat(item.tax.rate);
-    } else if (item.tax_rate && parseFloat(item.tax_rate)) {
-      tax = parseFloat(item.tax_rate);
-    }   
-
-    // show at most one blank line
-    if (shownItem && (!cost || cost == '0.00') && !notes && !productKey) {
-      continue;
-    }   
-    shownItem = true;
-
-    // process date variables
-    if (invoice.is_recurring) {
-      notes = processVariables(notes);
-      productKey = processVariables(productKey);
-    }
-    
-    var lineTotal = NINJA.parseFloat(item.cost) * NINJA.parseFloat(item.qty);
-    if (tax) {
-      lineTotal += lineTotal * tax / 100;
-    }
-    if (lineTotal) {
-      total += lineTotal;
-    }
-    lineTotal = formatMoney(lineTotal, currencyId);
-    
-    var costX = layout.unitCostRight - (doc.getStringUnitWidth(cost) * doc.internal.getFontSize());
-    var qtyX = layout.qtyRight - (doc.getStringUnitWidth(qty) * doc.internal.getFontSize());
-    var taxX = layout.taxRight - (doc.getStringUnitWidth(tax+'%') * doc.internal.getFontSize());
-    var totalX = layout.lineTotalRight - (doc.getStringUnitWidth(lineTotal) * doc.internal.getFontSize());
-
-    line += numLines;
-    
-    if (invoice.invoice_design_id == 1) {
-      if (i%2 == 0) {      
-        doc.setDrawColor(255,255,255);
-        doc.setFillColor(246,246,246);
-        doc.rect(left, top, width-left, newTop-top, 'FD');
-
-        doc.setLineWidth(0.3);        
-        doc.setDrawColor(200,200,200);
-        doc.line(left, top, width, top);
-        doc.line(left, newTop, width, newTop);        
-      }
-    } else if (invoice.invoice_design_id == 2) {
-      if (i%2 == 0) {      
-        left = 0;
-        width = 1000;
-
-        doc.setDrawColor(255,255,255);
-        doc.setFillColor(235,235,235);
-        doc.rect(left, top, width-left, newTop-top, 'FD');
-
-      }
-    } else if (invoice.invoice_design_id == 5) {
-      if (i%2 == 0) {      
-        doc.setDrawColor(255,255,255);
-        doc.setFillColor(247,247,247);
-        doc.rect(left, top, width-left+17, newTop-top, 'FD');
-        doc.setLineWidth(0.3);        
-        doc.setDrawColor(255,255,255);               
-      } else {
-        doc.setDrawColor(255,255,255);
-        doc.setFillColor(232,232,232);
-        doc.rect(left, top, width-left+17, newTop-top, 'FD');
-
-        doc.setLineWidth(0.3);        
-        doc.setDrawColor(255,255,255);      
-      }
-    } else {
-      doc.setLineWidth(0.3);
-      doc.setDrawColor(150,150,150);
-      doc.line(left, newTop, width, newTop);
-    }
-
-    y += 4;
-    
-    if (invoice.invoice_design_id == 1) {
-      SetPdfColor('LightBlue', doc, 'primary');
-    } else if (invoice.invoice_design_id == 2) {
-      SetPdfColor('SomeGreen', doc, 'primary');
-    } else if (invoice.invoice_design_id == 3) {
-      doc.setFontType('bold');
-    } else if (invoice.invoice_design_id == 4) {
-      SetPdfColor('Black', doc);
-    } else if (invoice.invoice_design_id == 5) {
-      SetPdfColor('Black', doc);
-    }
-
-    var splitTitle = doc.splitTextToSize(productKey, 60);
-    doc.text(layout.marginLeft, y+2, splitTitle);
-  
-    if (invoice.invoice_design_id == 5) {  
-      doc.setDrawColor(255, 255, 255);
-      doc.setLineWidth(1);
-      doc.line(layout.descriptionLeft-8, y-16,layout.descriptionLeft-8, y+55);
-        
-      doc.setDrawColor(255, 255, 255);
-      doc.setLineWidth(1);
-      doc.line(costX-30, y-16,costX-30, y+55);
-      
-      doc.setDrawColor(255, 255, 255);
-      doc.setLineWidth(1);
-      doc.line(qtyX-45, y-16,qtyX-45, y+55);
-
-      if (invoice.has_taxes) {
-        doc.setDrawColor(255, 255, 255);
-        doc.setLineWidth(1);
-        doc.line(taxX-15, y-16,taxX-15, y+55);
-      }
-
-      doc.setDrawColor(255, 255, 255);
-      doc.setLineWidth(1);
-      doc.line(totalX-27, y-16,totalX-27, y+55);    
-    }
-    
-    SetPdfColor('Black', doc);
-    doc.setFontType('normal');
-
-    doc.text(layout.descriptionLeft, y+2, notes);
-    doc.text(costX, y+2, cost);
-    if (!hideQuantity) {
-      doc.text(qtyX, y+2, qty);
-    }
-    doc.text(totalX, y+2, lineTotal);
-
-    if (tax) {
-      doc.text(taxX, y+2, tax+'%');
-    }
-  }  
-
-  y = tableTop + (line * layout.tableRowHeight) + (3 * layout.tablePadding);
-  var cutoff = 700;
-  if (invoice.terms) {
-    cutoff -= 50;
-  }
-  if (invoice.public_notes) {
-    cutoff -= 50;
-  }
-
-  if (y > cutoff) {
-    doc.addPage();
-    return layout.marginLeft;
-  }
-
-  return y;
-}
 
 // http://stackoverflow.com/questions/1068834/object-comparison-in-javascript
 function objectEquals(x, y) {
@@ -1385,20 +915,80 @@ function setDocHexDraw(doc, hex) {
   return doc.setDrawColor(r, g, b);
 }
 
-function openUrl(url, track) {
-  trackUrl(track ? track : url);
-  window.open(url, '_blank');
-}
-
 function toggleDatePicker(field) {
   $('#'+field).datepicker('show');
 }
 
 function roundToTwo(num, toString) {
   var val = +(Math.round(num + "e+2")  + "e-2");
-  return toString ? val.toFixed(2) : val;
+  return toString ? val.toFixed(2) : (val || 0);
 }
 
-function truncate(str, length) {  
+function truncate(str, length) {
   return (str && str.length > length) ? (str.substr(0, length-1) + '...') : str;
+}
+
+// http://codeaid.net/javascript/convert-seconds-to-hours-minutes-and-seconds-%28javascript%29
+function secondsToTime(secs)
+{
+    secs = Math.round(secs);
+    var hours = Math.floor(secs / (60 * 60));
+
+    var divisor_for_minutes = secs % (60 * 60);
+    var minutes = Math.floor(divisor_for_minutes / 60);
+
+    var divisor_for_seconds = divisor_for_minutes % 60;
+    var seconds = Math.ceil(divisor_for_seconds);
+
+    var obj = {
+        "h": hours,
+        "m": minutes,
+        "s": seconds
+    };
+    return obj;
+}
+
+function twoDigits(value) {
+   if (value < 10) {
+       return '0' + value;
+   }
+   return value;
+}
+
+function toSnakeCase(str) {
+    if (!str) return '';
+    return str.replace(/([A-Z])/g, function($1){return "_"+$1.toLowerCase();});
+}
+
+function getDescendantProp(obj, desc) {
+    var arr = desc.split(".");
+    while(arr.length && (obj = obj[arr.shift()]));
+    return obj;
+}
+
+function doubleDollarSign(str) {
+    if (!str) return '';
+    return str.replace(/\$/g, '\$\$\$');
+}
+
+function truncate(string, length){
+   if (string.length > length) {
+      return string.substring(0, length) + '...';
+   } else {
+      return string;
+   }
+};
+
+// Show/hide the 'Select' option in the datalists 
+function actionListHandler() {
+    $('tbody tr').mouseover(function() {
+        $(this).closest('tr').find('.tr-action').show();
+        $(this).closest('tr').find('.tr-status').hide();
+    }).mouseout(function() {
+        $dropdown = $(this).closest('tr').find('.tr-action');
+        if (!$dropdown.hasClass('open')) {
+          $dropdown.hide();
+          $(this).closest('tr').find('.tr-status').show();
+        }
+    });
 }
